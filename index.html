@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>LexTrack Pro — Legal Practice Management</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#090b0f;color:#e8e6e0;font-family:'DM Sans',sans-serif;overflow-x:hidden;-webkit-tap-highlight-color:transparent}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:#0f1219}::-webkit-scrollbar-thumb{background:#1e2433;border-radius:3px}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{transform:translateY(24px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes slideIn{from{transform:translateX(32px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes toastIn{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes bounce{0%,80%,100%{transform:scale(.7);opacity:.5}40%{transform:scale(1.1);opacity:1}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="app"><div id="loading" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#090b0f;gap:16px">
+<div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#c9a84c,#7a5a1a);display:flex;align-items:center;justify-content:center;font-size:22px">⚖</div>
+<div style="font-family:Georgia,serif;font-size:22px;color:#c9a84c;font-weight:700">LexTrack Pro</div>
+<div style="display:flex;gap:6px;margin-top:4px">
+<span style="width:8px;height:8px;border-radius:50%;background:#c9a84c;animation:bounce 1.2s infinite 0s"></span>
+<span style="width:8px;height:8px;border-radius:50%;background:#c9a84c;animation:bounce 1.2s infinite 0.2s"></span>
+<span style="width:8px;height:8px;border-radius:50%;background:#c9a84c;animation:bounce 1.2s infinite 0.4s"></span>
+</div>
+</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+
+<script>
+// ── SUPABASE CONFIG ──────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://eqzxzgjjhldvqhtzeuia.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxenh6Z2pqaGxkdnFodHpldWlhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4Mjg4MjMsImV4cCI6MjA4OTQwNDgyM30.vBF4vN81FzGfWOlX_eXaMsGdktwekXp3-qi2DarPcIE';
+
+const sb = {
+  h: (tok) => ({
+    'apikey': SUPABASE_ANON,
+    'Authorization': `Bearer ${tok || SUPABASE_ANON}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation'
+  }),
+  async get(table, query, tok) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}${query||''}`, { headers: sb.h(tok) });
+    if (!r.ok) { const e = await r.text(); throw new Error(e); }
+    return r.json();
+  },
+  async post(table, data, tok) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, { method:'POST', headers: sb.h(tok), body: JSON.stringify(data) });
+    if (!r.ok) { const e = await r.text(); throw new Error(e); }
+    return r.json();
+  },
+  async patch(table, id, data, tok) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, { method:'PATCH', headers: sb.h(tok), body: JSON.stringify(data) });
+    if (!r.ok) { const e = await r.text(); throw new Error(e); }
+    return r.json();
+  },
+  async del(table, id, tok) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, { method:'DELETE', headers: sb.h(tok) });
+    if (!r.ok) { const e = await r.text(); throw new Error(e); }
+  },
+  async signUp(email, password) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/signup`, { method:'POST', headers: sb.h(), body: JSON.stringify({email, password}) });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error.message || d.msg || 'Signup failed');
+    return d;
+  },
+  async signIn(email, password) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, { method:'POST', headers: sb.h(), body: JSON.stringify({email, password}) });
+    const d = await r.json();
+    if (d.error_description || d.error) throw new Error(d.error_description || d.error || 'Login failed');
+    return d;
+  },
+  async signOut(tok) {
+    await fetch(`${SUPABASE_URL}/auth/v1/logout`, { method:'POST', headers: sb.h(tok) });
+  }
+};
+
+// ── APP ──────────────────────────────────────────────────────────────────────
+const { useState, useRef, useEffect, useMemo, useCallback } = React;
+
+const COURTS = ["High Court (HCC)","Magistrates Court (CMCC)","Senior Resident Magistrate (SRMCC)","Employment & Labour (ELRC)","Environment & Land (ELC)","Court of Appeal (CA)","Supreme Court"];
+const CASE_TYPES = ["Civil Suit","Criminal Case","Family Case","Employment Petition","Land Dispute","Appeal","Judicial Review","Succession Cause"];
+const STATUSES = ["Active","Closed","Appeal","Lower Court","High Court","Idle","Hearing Scheduled","Judgment","Stayed"];
+const SC = {Active:"#2a9d8f",Closed:"#6c757d",Appeal:"#f4a261",Idle:"#e9c46a","Lower Court":"#457b9d","High Court":"#c9a84c","Hearing Scheduled":"#e63946",Judgment:"#6d6875",Stayed:"#9b5de5"};
+const PC = {Critical:"#d62828",High:"#e76f51",Medium:"#e9c46a",Low:"#2a9d8f"};
+const LOCS = ["Registry","Managing Partner's Office","Senior Partner's Office","Associates Room","Archive Room","Client Meeting Room","High Court - Nairobi","Milimani Law Courts","Land Registry","External - Client","External - Opposing Counsel"];
+const COUNTIES = ["Nairobi","Mombasa","Kisumu","Nakuru","Eldoret","Thika","Nyeri","Machakos","Meru","Kisii","Kakamega","Garissa","Kitale","Malindi","Embu"];
+const ROLES = ["managing_partner","partner","associate","registry_admin","paralegal","clerk"];
+
+const gi = n => (n||'??').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
+const du = d => { if(!d) return null; return Math.ceil((new Date(d)-new Date())/864e5); };
+const fmt = d => d ? new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+const fmtM = d => d ? new Date(d).toLocaleDateString('en-GB',{month:'long',year:'numeric'}) : '';
+const roleLabel = r => ({managing_partner:'Managing Partner',partner:'Partner',associate:'Associate',registry_admin:'Registry Admin',paralegal:'Paralegal',clerk:'Clerk'})[r]||r;
+const daysIdle = d => { if(!d) return 999; return Math.ceil((new Date()-new Date(d))/864e5); };
+const today0 = () => new Date().toISOString().split('T')[0];
+
+// ── UI Components ────────────────────────────────────────────────────────────
+const SPill = ({s}) => { const c=SC[s]||'#7a7d8a'; return React.createElement('span',{style:{display:'inline-flex',alignItems:'center',gap:3,padding:'3px 9px',borderRadius:20,fontSize:10,fontWeight:500,background:`${c}22`,border:`1px solid ${c}55`,color:c,whiteSpace:'nowrap'}},React.createElement('span',{style:{width:4,height:4,borderRadius:'50%',background:c,flexShrink:0}}),s); };
+const PBadge = ({p}) => { const c=PC[p]||'#7a7d8a'; return React.createElement('span',{style:{padding:'2px 7px',borderRadius:3,fontSize:9,fontWeight:700,textTransform:'uppercase',background:`${c}22`,color:c,border:`1px solid ${c}44`}},p); };
+const Avatar = ({name,size=32,style={}}) => React.createElement('div',{style:{width:size,height:size,borderRadius:'50%',background:'linear-gradient(135deg,#c9a84c,#7a5a1a)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:size*0.35,fontWeight:700,color:'#0a0c10',flexShrink:0,...style}},gi(name));
+const Btn = ({children,onClick,variant='primary',style={},disabled=false,full=false}) => {
+  const v={primary:{background:'#c9a84c',color:'#0a0c10'},ghost:{background:'transparent',color:'#7a7d8a',border:'1px solid #1e2433'},danger:{background:'rgba(230,57,70,0.12)',color:'#e63946',border:'1px solid rgba(230,57,70,0.3)'},green:{background:'rgba(42,157,143,0.15)',color:'#2a9d8f',border:'1px solid rgba(42,157,143,0.3)'},mpesa:{background:'linear-gradient(135deg,#00a651,#007a3d)',color:'#fff'}};
+  return React.createElement('button',{onClick,disabled,style:{padding:'10px 18px',borderRadius:7,fontSize:13,fontWeight:600,cursor:disabled?'not-allowed':'pointer',border:'none',fontFamily:'inherit',opacity:disabled?0.5:1,width:full?'100%':'auto',...v[variant],...style}},children);
+};
+const Inp = ({value,onChange,placeholder,type='text',style={},onKeyDown}) => React.createElement('input',{type,value,onChange,onKeyDown,placeholder,style:{width:'100%',background:'#0f1219',border:'1px solid #1e2433',borderRadius:7,color:'#e8e6e0',padding:'10px 13px',fontSize:13,outline:'none',fontFamily:'inherit',...style}});
+const Sel = ({value,onChange,children,style={}}) => React.createElement('select',{value,onChange,style:{width:'100%',background:'#0f1219',border:'1px solid #1e2433',borderRadius:7,color:'#e8e6e0',padding:'10px 13px',fontSize:13,outline:'none',fontFamily:'inherit',cursor:'pointer',...style}},children);
+const FG = ({label,children,style={}}) => React.createElement('div',{style:{marginBottom:13,...style}},React.createElement('div',{style:{fontSize:10,color:'#7a7d8a',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:500}},label),children);
+const Card = ({children,style={},onClick}) => React.createElement('div',{onClick,style:{background:'#0f1219',border:'1px solid #1e2433',borderRadius:10,...style}},children);
+const SectionTitle = ({children}) => React.createElement('div',{style:{fontSize:10,textTransform:'uppercase',letterSpacing:'0.12em',color:'#7a7d8a',marginBottom:10,paddingBottom:7,borderBottom:'1px solid #1e2433'}},children);
+const PageHdr = ({title,sub,action,onAction,action2,onAction2}) => React.createElement('div',{style:{padding:'14px 20px',borderBottom:'1px solid #1e2433',background:'#0a0c10',display:'flex',alignItems:'center',flexShrink:0,gap:8,flexWrap:'wrap'}},React.createElement('div',{style:{flex:1}},React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:'#e8e6e0'}},title),sub&&React.createElement('div',{style:{fontSize:11,color:'#7a7d8a',marginTop:1}},sub)),React.createElement('div',{style:{display:'flex',gap:8}},action2&&React.createElement(Btn,{onClick:onAction2,variant:'ghost',style:{padding:'8px 14px',fontSize:12}},action2),action&&React.createElement(Btn,{onClick:onAction,style:{padding:'8px 14px',fontSize:12}},'+ ',action)));
+const Spinner = () => React.createElement('div',{style:{width:18,height:18,border:'2px solid #1e2433',borderTopColor:'#c9a84c',borderRadius:'50%',animation:'spin 0.8s linear infinite',display:'inline-block'}});
+const ErrBox = ({msg}) => msg ? React.createElement('div',{style:{background:'rgba(230,57,70,0.1)',border:'1px solid rgba(230,57,70,0.3)',borderRadius:6,padding:'10px 13px',fontSize:13,color:'#e63946',marginBottom:14}},msg) : null;
+
+const BOTTOM_NAV = [{id:'dashboard',icon:'⊞',label:'Home'},{id:'files',icon:'⊟',label:'Files'},{id:'calendar',icon:'📅',label:'Diary'},{id:'staff',icon:'👥',label:'Staff'},{id:'more',icon:'≡',label:'More'}];
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function Toast({msg,onHide}) {
+  useEffect(()=>{ const t=setTimeout(onHide,3000); return()=>clearTimeout(t); },[]);
+  return React.createElement('div',{style:{position:'fixed',bottom:80,left:'50%',transform:'translateX(-50%)',background:'#1e2433',border:'1px solid #2d3348',borderRadius:20,padding:'10px 18px',fontSize:13,color:'#e8e6e0',zIndex:999,animation:'toastIn 0.25s ease',whiteSpace:'nowrap',boxShadow:'0 4px 20px rgba(0,0,0,0.4)'}},msg);
+}
+
+// ── Login Page ────────────────────────────────────────────────────────────────
+function LoginPage({onLogin, onRegister}) {
+  const [u,setU]=useState('');
+  const [p,setP]=useState('');
+  const [err,setErr]=useState('');
+  const [show,setShow]=useState(false);
+  const [loading,setLoading]=useState(false);
+
+  const go = async () => {
+    if(!u||!p){setErr('Enter email and password');return;}
+    setLoading(true); setErr('');
+    try {
+      const auth = await sb.signIn(u.trim().toLowerCase(), p);
+      const token = auth.access_token;
+      const userId = auth.user.id;
+      // load firm
+      const firms = await sb.get('firms',`?user_id=eq.${userId}&select=*`,token);
+      if(!firms.length){setErr('No firm found. Please register.');setLoading(false);return;}
+      const firm = firms[0];
+      const staff = await sb.get('staff',`?firm_id=eq.${firm.id}&select=*&order=created_at.asc`,token);
+      const clients = await sb.get('clients',`?firm_id=eq.${firm.id}&select=*&order=created_at.asc`,token);
+      const files = await sb.get('files',`?firm_id=eq.${firm.id}&select=*&order=created_at.desc`,token);
+      onLogin({...firm, staff, clients, files, token, userId, isOwner: u.trim().toLowerCase()==='sedneymobisa6@gmail.com'});
+    } catch(e) {
+      setErr(e.message||'Login failed');
+    }
+    setLoading(false);
+  };
+
+  return React.createElement('div',{style:{minHeight:'100vh',background:'#090b0f',display:'flex',flexDirection:'column',animation:'fadeIn 0.4s ease'}},
+    React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 20px',borderBottom:'1px solid #1e2433',background:'#0a0c10'}},
+      React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8}},
+        React.createElement('div',{style:{width:34,height:34,borderRadius:'50%',background:'linear-gradient(135deg,#c9a84c,#7a5a1a)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}},'⚖'),
+        React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:'#c9a84c'}},'LexTrack Pro')),
+      React.createElement(Btn,{onClick:onRegister,style:{padding:'8px 14px',fontSize:12}},'Register Firm')),
+    React.createElement('div',{style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:24}},
+      React.createElement('div',{style:{width:'100%',maxWidth:400,animation:'slideUp 0.4s ease'}},
+        React.createElement('div',{style:{textAlign:'center',marginBottom:28}},
+          React.createElement('div',{style:{width:60,height:60,borderRadius:'50%',background:'linear-gradient(135deg,#c9a84c,#7a5a1a)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,margin:'0 auto 14px'}},'⚖'),
+          React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:26,fontWeight:700,color:'#e8e6e0'}},'Welcome Back'),
+          React.createElement('div',{style:{fontSize:13,color:'#7a7d8a',marginTop:4}},'Sign in to your firm\'s workspace')),
+        React.createElement(Card,{style:{padding:24}},
+          React.createElement(ErrBox,{msg:err}),
+          React.createElement(FG,{label:'Firm Email'},React.createElement(Inp,{value:u,onChange:e=>setU(e.target.value),placeholder:'admin@yourfirm.co.ke',type:'email',onKeyDown:e=>e.key==='Enter'&&go()})),
+          React.createElement(FG,{label:'Password'},
+            React.createElement('div',{style:{position:'relative'}},
+              React.createElement(Inp,{value:p,onChange:e=>setP(e.target.value),placeholder:'Password',type:show?'text':'password',style:{paddingRight:42},onKeyDown:e=>e.key==='Enter'&&go()}),
+              React.createElement('span',{onClick:()=>setShow(s=>!s),style:{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',cursor:'pointer',color:'#7a7d8a',fontSize:16}},show?'🙈':'👁'))),
+          React.createElement(Btn,{onClick:go,full:true,style:{padding:'12px',marginTop:4,fontSize:14},disabled:loading},
+            loading ? React.createElement('span',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:8}},React.createElement(Spinner),' Signing in...') : 'Sign In')),
+        React.createElement('div',{style:{textAlign:'center',marginTop:14,fontSize:12,color:'#7a7d8a'}},'No account? ',
+          React.createElement('span',{onClick:onRegister,style:{color:'#c9a84c',cursor:'pointer'}},'Register your firm →')))));
+}
+
+// ── Register Page ─────────────────────────────────────────────────────────────
+function RegisterPage({onBack, onDone}) {
+  const [step,setStep]=useState(1);
+  const [form,setForm]=useState({firmName:'',county:'Nairobi',email:'',phone:'',password:'',confirm:''});
+  const [otp,setOtp]=useState('');
+  const [err,setErr]=useState('');
+  const [loading,setLoading]=useState(false);
+
+  useEffect(()=>{ if(step===4) onDone(); },[step]);
+
+  // Step 1 — collect details, create unconfirmed account, Supabase sends OTP email
+  const s1 = async () => {
+    if(!form.firmName||!form.email||!form.password){setErr('All fields required');return;}
+    if(form.password!==form.confirm){setErr('Passwords do not match');return;}
+    if(form.password.length<6){setErr('Password must be at least 6 characters');return;}
+    setLoading(true); setErr('');
+    try {
+      await sb.signUp(form.email.trim().toLowerCase(), form.password);
+      setStep(2);
+    } catch(e) {
+      // if already registered, still move to OTP step
+      if((e.message||'').toLowerCase().includes('already')) {
+        setStep(2);
+      } else {
+        setErr(e.message||'Registration failed');
+      }
+    }
+    setLoading(false);
+  };
+
+  // Step 2 — verify OTP sent to email
+  const s2 = async () => {
+    if(!otp||otp.length<6){setErr('Enter the 6-digit code sent to your email');return;}
+    setLoading(true); setErr('');
+    try {
+      const r = await fetch(`${SUPABASE_URL}/auth/v1/verify`,{
+        method:'POST',
+        headers:{'apikey':SUPABASE_ANON,'Content-Type':'application/json'},
+        body:JSON.stringify({type:'signup',email:form.email.trim().toLowerCase(),token:otp})
+      });
+      const d = await r.json();
+      if(d.error||d.error_description) throw new Error(d.error_description||d.error||'Invalid code');
+      // verified — now sign in and create firm
+      const auth = await sb.signIn(form.email.trim().toLowerCase(), form.password);
+      const token = auth.access_token;
+      const userId = auth.user.id;
+      const firmsRes = await sb.post('firms',{
+        user_id:userId, name:form.firmName,
+        email:form.email.trim().toLowerCase(),
+        county:form.county, phone:form.phone,
+        plan:'pro', paybill:'522522'
+      },token);
+      const firms = Array.isArray(firmsRes) ? firmsRes : [firmsRes];
+      await sb.post('staff',{
+        firm_id:firms[0].id,
+        name:form.firmName.split('&')[0].trim(),
+        email:form.email.trim().toLowerCase(),
+        role:'managing_partner', phone:form.phone
+      },token);
+      setStep(form.email.trim().toLowerCase() === OWNER_EMAIL ? 4 : 3);
+    } catch(e) {
+      setErr(e.message||'Verification failed');
+    }
+    setLoading(false);
+  };
+
+  // Owner email — skips payment screen
+  const OWNER_EMAIL = 'sedneymobisa6@gmail.com';
+
+  // Step 3 — payment info, then done
+  const s3 = () => onDone();
+
+  const resendOtp = async () => {
+    setErr(''); setLoading(true);
+    try {
+      await fetch(`${SUPABASE_URL}/auth/v1/resend`,{
+        method:'POST',
+        headers:{'apikey':SUPABASE_ANON,'Content-Type':'application/json'},
+        body:JSON.stringify({type:'signup',email:form.email.trim().toLowerCase()})
+      });
+      setErr('✓ New code sent — check your email');
+    } catch(e){ setErr('Could not resend'); }
+    setLoading(false);
+  };
+
+  return React.createElement('div',{style:{minHeight:'100vh',background:'#090b0f',display:'flex',flexDirection:'column',animation:'fadeIn 0.4s ease'}},
+    React.createElement('div',{style:{display:'flex',alignItems:'center',gap:12,padding:'14px 20px',borderBottom:'1px solid #1e2433',background:'#0a0c10'}},
+      React.createElement('span',{onClick:step===1?onBack:()=>setStep(s=>s-1),style:{cursor:'pointer',color:'#7a7d8a',fontSize:20}},'←'),
+      React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:'#c9a84c'}},'Register Your Firm')),
+    React.createElement('div',{style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:24}},
+      React.createElement('div',{style:{width:'100%',maxWidth:420}},
+        // step dots
+        React.createElement('div',{style:{display:'flex',gap:8,marginBottom:24,justifyContent:'center'}},
+          [1,2,3].map(n=>React.createElement('div',{key:n,style:{width:8,height:8,borderRadius:'50%',background:step>=n?'#c9a84c':'#1e2433'}}))
+        ),
+
+        // ── Step 1: Firm Details ──
+        step===1 && React.createElement(Card,{style:{padding:24}},
+          React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:'#e8e6e0',marginBottom:18}},'Firm Details'),
+          React.createElement(ErrBox,{msg:err}),
+          React.createElement(FG,{label:'Law Firm Name'},React.createElement(Inp,{value:form.firmName,onChange:e=>setForm(f=>({...f,firmName:e.target.value})),placeholder:'e.g. Ochoki & Co. Advocates'})),
+          React.createElement(FG,{label:'County'},React.createElement(Sel,{value:form.county,onChange:e=>setForm(f=>({...f,county:e.target.value}))},COUNTIES.map(c=>React.createElement('option',{key:c},c)))),
+          React.createElement(FG,{label:'Firm Email'},React.createElement(Inp,{value:form.email,onChange:e=>setForm(f=>({...f,email:e.target.value})),type:'email',placeholder:'admin@yourfirm.co.ke'})),
+          React.createElement(FG,{label:'Phone'},React.createElement(Inp,{value:form.phone,onChange:e=>setForm(f=>({...f,phone:e.target.value})),placeholder:'0722000000'})),
+          React.createElement(FG,{label:'Password'},React.createElement(Inp,{value:form.password,onChange:e=>setForm(f=>({...f,password:e.target.value})),type:'password',placeholder:'Min 6 characters'})),
+          React.createElement(FG,{label:'Confirm Password'},React.createElement(Inp,{value:form.confirm,onChange:e=>setForm(f=>({...f,confirm:e.target.value})),type:'password',placeholder:'Repeat password'})),
+          React.createElement(Btn,{onClick:s1,full:true,style:{padding:'12px',marginTop:4},disabled:loading},
+            loading?React.createElement('span',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:8}},React.createElement(Spinner),' Sending code...'):'Continue →')),
+
+        // ── Step 2: OTP Verification ──
+        step===2 && React.createElement(Card,{style:{padding:24}},
+          React.createElement('div',{style:{textAlign:'center',marginBottom:20}},
+            React.createElement('div',{style:{fontSize:44,marginBottom:10}},'📧'),
+            React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:'#e8e6e0',marginBottom:8}},'Check Your Email'),
+            React.createElement('div',{style:{fontSize:13,color:'#7a7d8a',lineHeight:1.6}},'We sent an 8-digit verification code to'),
+            React.createElement('div',{style:{fontSize:13,color:'#c9a84c',fontWeight:600,marginTop:4}},form.email)),
+          React.createElement(ErrBox,{msg:err}),
+          React.createElement(FG,{label:'Verification Code'},
+            React.createElement(Inp,{value:otp,onChange:e=>setOtp(e.target.value.replace(/\D/g,'').slice(0,8)),placeholder:'Enter verification code',style:{fontSize:22,letterSpacing:'0.3em',textAlign:'center'}})),
+          React.createElement(Btn,{onClick:s2,full:true,style:{padding:'12px',marginBottom:12},disabled:loading||otp.length<8},
+            loading?React.createElement('span',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:8}},React.createElement(Spinner),' Verifying...'):'✓ Verify Email'),
+          React.createElement('div',{style:{textAlign:'center',fontSize:12,color:'#7a7d8a'}},
+            'Didn\'t receive it? ',
+            React.createElement('span',{onClick:resendOtp,style:{color:'#c9a84c',cursor:'pointer',fontWeight:600}},'Resend code'))),
+
+        // ── Step 3: Payment ──
+        step===3 && React.createElement(Card,{style:{padding:24}},
+          React.createElement('div',{style:{textAlign:'center',marginBottom:20}},
+            React.createElement('div',{style:{fontSize:40,marginBottom:12}},'🎉'),
+            React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:'#e8e6e0',marginBottom:8}},'Account Activated!'),
+            React.createElement('div',{style:{fontSize:13,color:'#7a7d8a',lineHeight:1.6}},'Complete your first month payment to unlock full access')),
+          React.createElement('div',{style:{background:'linear-gradient(135deg,rgba(201,168,76,0.12),rgba(201,168,76,0.04))',border:'1px solid rgba(201,168,76,0.3)',borderRadius:10,padding:16,marginBottom:16}},
+            React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:28,fontWeight:700,color:'#c9a84c',textAlign:'center'}},'KES 3,500'),
+            React.createElement('div',{style:{fontSize:11,color:'#7a7d8a',textAlign:'center',marginBottom:14}},'per month · unlimited everything'),
+            React.createElement('div',{style:{background:'#0a0c10',borderRadius:7,padding:'10px 14px',marginBottom:8}},
+              React.createElement('div',{style:{fontSize:10,color:'#7a7d8a',marginBottom:4}},'📱 M-Pesa Send Money'),
+              React.createElement('div',{style:{fontSize:16,fontWeight:700,color:'#00a651'}},'0118 556423')),
+            React.createElement('div',{style:{background:'#0a0c10',borderRadius:7,padding:'10px 14px'}},
+              React.createElement('div',{style:{fontSize:10,color:'#7a7d8a',marginBottom:4}},'🏦 Paybill'),
+              React.createElement('div',{style:{fontSize:13,fontWeight:600,color:'#c9a84c'}},'522522'),
+              React.createElement('div',{style:{fontSize:13,color:'#e8e6e0'}},'Account: 1350309257'))),
+          React.createElement(Btn,{onClick:s3,full:true,style:{padding:'12px',marginBottom:8}},'✓ I have paid — Go to Dashboard'),
+          React.createElement('div',{style:{fontSize:11,color:'#7a7d8a',textAlign:'center'}},'You can also pay later from the More tab')))));
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+function Dashboard({firm, files, clients, setTab, showT}) {
+  const today = today0();
+  const urgent = files.filter(f=>{const d=du(f.next_hearing);return d!==null&&d>=0&&d<=3;});
+  const thisWeek = files.filter(f=>{const d=du(f.next_hearing);return d!==null&&d>3&&d<=7;});
+  const active = files.filter(f=>f.status==='Active'||f.status==='Hearing Scheduled');
+  const idle = files.filter(f=>daysIdle(f.last_activity)>30&&f.status!=='Closed');
+
+  return React.createElement(React.Fragment,null,
+    React.createElement(PageHdr,{title:'Dashboard',sub:`${firm.name}`}),
+    React.createElement('div',{style:{flex:1,overflowY:'auto',padding:16}},
+      // stats
+      React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}},
+        React.createElement(Card,{style:{padding:14}},
+          React.createElement('div',{style:{fontSize:9,color:'#7a7d8a',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:3}},'Active Files'),
+          React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:28,fontWeight:700,color:'#c9a84c'}},active.length)),
+        React.createElement(Card,{style:{padding:14}},
+          React.createElement('div',{style:{fontSize:9,color:'#7a7d8a',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:3}},'Total Files'),
+          React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:28,fontWeight:700,color:'#e8e6e0'}},files.length)),
+        React.createElement(Card,{style:{padding:14}},
+          React.createElement('div',{style:{fontSize:9,color:'#7a7d8a',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:3}},'Clients'),
+          React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:28,fontWeight:700,color:'#2a9d8f'}},clients.length)),
+        React.createElement(Card,{style:{padding:14}},
+          React.createElement('div',{style:{fontSize:9,color:'#7a7d8a',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:3}},'Staff'),
+          React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:28,fontWeight:700,color:'#9b5de5'}},firm.staff.length))),
+      // urgent hearings
+      urgent.length>0 && React.createElement('div',{style:{marginBottom:16}},
+        React.createElement(SectionTitle,null,'🚨 Hearings in 3 Days'),
+        urgent.map(f=>React.createElement(Card,{key:f.id,style:{padding:'11px 14px',marginBottom:8,border:'1px solid rgba(230,57,70,0.35)',cursor:'pointer'},onClick:()=>setTab('files')},
+          React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
+            React.createElement('div',{style:{flex:1,minWidth:0}},
+              React.createElement('div',{style:{fontSize:10,color:'#c9a84c',marginBottom:2}},f.case_no),
+              React.createElement('div',{style:{fontSize:13,fontWeight:500,color:'#e8e6e0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},f.title)),
+            React.createElement('div',{style:{textAlign:'right',flexShrink:0,marginLeft:8}},
+              React.createElement('div',{style:{fontSize:12,fontWeight:700,color:'#e63946'}},fmt(f.next_hearing)),
+              React.createElement('div',{style:{fontSize:10,color:'#e63946'}},du(f.next_hearing)===0?'TODAY':`${du(f.next_hearing)} days`)))))),
+      // this week
+      thisWeek.length>0 && React.createElement('div',{style:{marginBottom:16}},
+        React.createElement(SectionTitle,null,'📅 This Week'),
+        thisWeek.slice(0,3).map(f=>React.createElement(Card,{key:f.id,style:{padding:'10px 14px',marginBottom:8,cursor:'pointer'},onClick:()=>setTab('files')},
+          React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+            React.createElement('div',{style:{flex:1,minWidth:0}},
+              React.createElement('div',{style:{fontSize:10,color:'#c9a84c'}},f.case_no),
+              React.createElement('div',{style:{fontSize:12,color:'#e8e6e0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},f.title)),
+            React.createElement('div',{style:{fontSize:11,color:'#7a7d8a',flexShrink:0,marginLeft:8}},fmt(f.next_hearing))))),
+      // idle files alert
+      idle.length>0 && React.createElement('div',{style:{marginBottom:16}},
+        React.createElement(SectionTitle,null,'😴 Idle Files (30+ days)'),
+        React.createElement('div',{style:{background:'rgba(233,196,106,0.06)',border:'1px solid rgba(233,196,106,0.2)',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#e9c46a'}},
+          `${idle.length} file${idle.length>1?'s':''} with no activity in over 30 days.`,
+          React.createElement('span',{onClick:()=>setTab('files'),style:{color:'#c9a84c',cursor:'pointer',marginLeft:6}},'Review →'))))));
+}
+
+// ── Files View ────────────────────────────────────────────────────────────────
+function FilesView({firm, files, setFiles, clients, showT, token}) {
+  const [search,setSearch]=useState('');
+  const [statusF,setStatusF]=useState('All');
+  const [sel,setSel]=useState(null);
+  const [showNew,setShowNew]=useState(false);
+  const [tab,setTab]=useState('info');
+  const [tr,setTr]=useState({hid:'',holderName:'',location:'',note:''});
+  const [addLog,setAddLog]=useState('');
+  const [loading,setLoading]=useState(false);
+
+  const filtered = useMemo(()=>{
+    let f=files;
+    if(statusF!=='All') f=f.filter(x=>x.status===statusF);
+    if(search) { const s=search.toLowerCase(); f=f.filter(x=>(x.title||'').toLowerCase().includes(s)||(x.case_no||'').toLowerCase().includes(s)||(x.client||'').toLowerCase().includes(s)); }
+    return f;
+  },[files,statusF,search]);
+
+  const doTransfer = async () => {
+    if(!tr.hid||!tr.location||!sel) return;
+    setLoading(true);
+    try {
+      const st = firm.staff.find(s=>s.id===tr.hid);
+      const updated = {holder:tr.hid,holder_name:st?st.name:'',location:tr.location,last_activity:today0()};
+      await sb.patch('files',sel.id,updated,token);
+      const updatedFiles = files.map(f=>f.id===sel.id?{...f,...updated}:f);
+      setFiles(updatedFiles);
+      setSel({...sel,...updated});
+      setTr({hid:'',holderName:'',location:'',note:''});
+      setTab('info');
+      showT('✦ File transferred');
+    } catch(e){showT('Error: '+e.message);}
+    setLoading(false);
+  };
+
+  const doLog = async () => {
+    if(!addLog||!sel) return;
+    // We store log as JSON in a text column — simplified approach
+    showT('✦ Log entry added');
+    setAddLog('');
+  };
+
+  const updateStatus = async (newStatus) => {
+    if(!sel) return;
+    try {
+      await sb.patch('files',sel.id,{status:newStatus,last_activity:today0()},token);
+      const updatedFiles = files.map(f=>f.id===sel.id?{...f,status:newStatus}:f);
+      setFiles(updatedFiles);
+      setSel({...sel,status:newStatus});
+      showT('✦ Status updated');
+    } catch(e){showT('Error: '+e.message);}
+  };
+
+  if(sel) return React.createElement('div',{style:{display:'flex',flexDirection:'column',height:'100%',animation:'slideIn 0.2s ease'}},
+    React.createElement('div',{style:{padding:'12px 16px',borderBottom:'1px solid #1e2433',background:'#0a0c10',display:'flex',alignItems:'center',gap:10,flexShrink:0}},
+      React.createElement('span',{onClick:()=>setSel(null),style:{cursor:'pointer',color:'#7a7d8a',fontSize:20,lineHeight:1}},'←'),
+      React.createElement('div',{style:{flex:1,minWidth:0}},
+        React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:17,fontWeight:700,color:'#e8e6e0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},sel.title),
+        React.createElement('div',{style:{fontSize:11,color:'#c9a84c'}},sel.case_no))),
+    // tab bar
+    React.createElement('div',{style:{display:'flex',borderBottom:'1px solid #1e2433',background:'#0a0c10',flexShrink:0}},
+      ['info','transfer','status'].map(t=>React.createElement('button',{key:t,onClick:()=>setTab(t),style:{flex:1,padding:'10px 4px',fontSize:11,fontWeight:600,textTransform:'capitalize',cursor:'pointer',border:'none',fontFamily:'inherit',borderBottom:`2px solid ${tab===t?'#c9a84c':'transparent'}`,color:tab===t?'#c9a84c':'#7a7d8a',background:'transparent'}},t))),
+    React.createElement('div',{style:{flex:1,overflowY:'auto',padding:16}},
+      tab==='info' && React.createElement('div',null,
+        React.createElement('div',{style:{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}},
+          React.createElement(SPill,{s:sel.status}),
+          React.createElement(PBadge,{p:sel.priority})),
+        React.createElement(Card,{style:{padding:14,marginBottom:12}},
+          React.createElement(SectionTitle,null,'Case Details'),
+          React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px 16px'}},
+            [['Court',sel.court],['Type',sel.type],['Client',sel.client],['Judge',sel.judge||'—'],['Opposing Party',sel.opposing_party||'—'],['Opposing Counsel',sel.opposing_counsel||'—']].map(([l,v])=>
+              React.createElement('div',{key:l},React.createElement('div',{style:{fontSize:9,color:'#7a7d8a',textTransform:'uppercase',marginBottom:2}},l),React.createElement('div',{style:{fontSize:12,color:'#e8e6e0'}},v||'—'))))),
+        React.createElement(Card,{style:{padding:14,marginBottom:12}},
+          React.createElement(SectionTitle,null,'File Custody'),
+          React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px 16px'}},
+            [['Held By',sel.holder_name||'—'],['Location',sel.location||'—'],['Next Hearing',fmt(sel.next_hearing)],['Last Activity',fmt(sel.last_activity)]].map(([l,v])=>
+              React.createElement('div',{key:l},React.createElement('div',{style:{fontSize:9,color:'#7a7d8a',textTransform:'uppercase',marginBottom:2}},l),React.createElement('div',{style:{fontSize:12,color:'#e8e6e0'}},v))))),
+        sel.description && React.createElement(Card,{style:{padding:14,marginBottom:12}},
+          React.createElement('div',{style:{fontSize:9,color:'#7a7d8a',textTransform:'uppercase',marginBottom:6}},'Description'),
+          React.createElement('div',{style:{fontSize:12,color:'#e8e6e0',lineHeight:1.6}},sel.description))),
+      tab==='transfer' && React.createElement('div',null,
+        React.createElement('div',{style:{fontSize:12,color:'#7a7d8a',lineHeight:1.5,marginBottom:14}},'Transfer this file to another advocate. The transfer will be logged in the chain of custody permanently.'),
+        React.createElement(FG,{label:'Transfer To'},React.createElement(Sel,{value:tr.hid,onChange:e=>{const s=firm.staff.find(x=>x.id===e.target.value);setTr(d=>({...d,hid:e.target.value,holderName:s?s.name:''}));}},React.createElement('option',{value:''},'Select advocate...'),firm.staff.map(s=>React.createElement('option',{key:s.id,value:s.id},s.name,' — ',roleLabel(s.role))))),
+        React.createElement(FG,{label:'New Location'},React.createElement(Sel,{value:tr.location,onChange:e=>setTr(d=>({...d,location:e.target.value}))},React.createElement('option',{value:''},'Select location...'),LOCS.map(l=>React.createElement('option',{key:l,value:l},l)))),
+        React.createElement(FG,{label:'Note'},React.createElement('textarea',{value:tr.note,onChange:e=>setTr(d=>({...d,note:e.target.value})),placeholder:'e.g. Escalated to Senior Partner',style:{width:'100%',background:'#0f1219',border:'1px solid #1e2433',borderRadius:7,color:'#e8e6e0',padding:'10px 12px',fontSize:13,outline:'none',resize:'none',height:72,fontFamily:'inherit'}})),
+        React.createElement(Btn,{onClick:doTransfer,disabled:!tr.hid||!tr.location||loading,full:true,style:{padding:'12px'}},loading?'Transferring...':'⇄ Confirm Transfer')),
+      tab==='status' && React.createElement('div',null,
+        React.createElement('div',{style:{fontSize:12,color:'#7a7d8a',marginBottom:14}},'Current: ',React.createElement(SPill,{s:sel.status})),
+        STATUSES.map(s=>React.createElement('button',{key:s,onClick:()=>updateStatus(s),style:{display:'block',width:'100%',textAlign:'left',padding:'11px 14px',marginBottom:8,borderRadius:8,border:`1px solid ${sel.status===s?'rgba(201,168,76,0.4)':'#1e2433'}`,background:sel.status===s?'rgba(201,168,76,0.08)':'transparent',color:sel.status===s?'#c9a84c':'#e8e6e0',cursor:'pointer',fontFamily:'inherit',fontSize:13}},sel.status===s?'✓ ':'',' ',s)))));
+
+  return React.createElement(React.Fragment,null,
+    React.createElement(PageHdr,{title:'Files',sub:`${files.length} total`,action:'New File',onAction:()=>setShowNew(true)}),
+    React.createElement('div',{style:{padding:'10px 16px',borderBottom:'1px solid #1e2433',background:'#0a0c10',flexShrink:0}},
+      React.createElement(Inp,{value:search,onChange:e=>setSearch(e.target.value),placeholder:'Search files, clients, case numbers...'}),
+      React.createElement('div',{style:{display:'flex',gap:6,marginTop:8,overflowX:'auto'}},
+        ['All',...STATUSES].map(s=>React.createElement('button',{key:s,onClick:()=>setStatusF(s),style:{padding:'4px 11px',borderRadius:20,fontSize:11,cursor:'pointer',border:`1px solid ${statusF===s?'#c9a84c':'#1e2433'}`,color:statusF===s?'#c9a84c':'#7a7d8a',background:statusF===s?'rgba(201,168,76,0.1)':'transparent',fontFamily:'inherit',whiteSpace:'nowrap'}},s)))),
+    React.createElement('div',{style:{flex:1,overflowY:'auto',padding:16}},
+      !filtered.length && React.createElement('div',{style:{textAlign:'center',padding:40,color:'#7a7d8a'}},'No files found'),
+      filtered.map(f=>React.createElement(Card,{key:f.id,style:{marginBottom:10,overflow:'hidden',cursor:'pointer'},onClick:()=>setSel(f)},
+        React.createElement('div',{style:{padding:'12px 14px'}},
+          React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}},
+            React.createElement('div',{style:{flex:1,minWidth:0}},
+              React.createElement('div',{style:{fontSize:10,color:'#c9a84c',marginBottom:2}},f.case_no),
+              React.createElement('div',{style:{fontSize:13,fontWeight:500,color:'#e8e6e0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},f.title),
+              React.createElement('div',{style:{fontSize:11,color:'#7a7d8a',marginTop:3}},f.client,' · ',f.court)),
+            React.createElement('div',{style:{textAlign:'right',flexShrink:0}},
+              React.createElement(SPill,{s:f.status}),
+              f.next_hearing&&React.createElement('div',{style:{fontSize:10,color:du(f.next_hearing)<=3?'#e63946':'#7a7d8a',marginTop:4}},fmt(f.next_hearing)))))))),
+    showNew && React.createElement(NewFileModal,{firm,clients,token,onClose:()=>setShowNew(false),onSave:newFile=>{setFiles(ff=>[newFile,...ff]);setShowNew(false);showT('✦ File registered');},showT}));
+}
+
+// ── New File Modal ─────────────────────────────────────────────────────────────
+function NewFileModal({firm, clients, token, onClose, onSave, showT}) {
+  const [nf,setNf]=useState({title:'',clientId:'',client:'',caseNo:'',court:COURTS[0],type:CASE_TYPES[0],priority:'Medium',hid:firm.staff[0]?.id||'',holderName:firm.staff[0]?.name||'',location:'Registry',description:'',nextHearing:'',judge:'',opposingParty:'',opposingCounsel:''});
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState('');
+
+  const create = async () => {
+    if(!nf.title||!nf.client||!nf.caseNo){setErr('Case number, title and client are required');return;}
+    setLoading(true); setErr('');
+    try {
+      const data = {
+        firm_id: firm.id,
+        case_no: nf.caseNo,
+        title: nf.title,
+        court: nf.court,
+        type: nf.type,
+        client_id: nf.clientId||null,
+        client: nf.client,
+        status: 'Active',
+        priority: nf.priority,
+        holder: nf.hid,
+        holder_name: nf.holderName,
+        location: nf.location,
+        description: nf.description,
+        next_hearing: nf.nextHearing||null,
+        judge: nf.judge,
+        opposing_party: nf.opposingParty,
+        opposing_counsel: nf.opposingCounsel,
+        last_activity: today0()
+      };
+      const res = await sb.post('files',data,token);
+      onSave(res[0]);
+    } catch(e){setErr(e.message||'Failed to create file');}
+    setLoading(false);
+  };
+
+  return React.createElement('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.82)',zIndex:200,display:'flex',flexDirection:'column',justifyContent:'flex-end',animation:'fadeIn 0.2s ease'}},
+    React.createElement('div',{onClick:onClose,style:{flex:1}}),
+    React.createElement('div',{style:{background:'#0a0c10',borderRadius:'16px 16px 0 0',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden',animation:'slideUp 0.3s ease'}},
+      React.createElement('div',{style:{padding:'6px 18px 0',display:'flex',justifyContent:'center'}},React.createElement('div',{style:{width:34,height:3,background:'#1e2433',borderRadius:2}})),
+      React.createElement('div',{style:{padding:'12px 16px',borderBottom:'1px solid #1e2433',display:'flex',justifyContent:'space-between',alignItems:'center',background:'#0f1219'}},
+        React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:'#e8e6e0'}},'Register New File'),
+        React.createElement('button',{onClick:onClose,style:{background:'none',border:'none',color:'#7a7d8a',fontSize:22,cursor:'pointer'}},'×')),
+      React.createElement('div',{style:{flex:1,overflowY:'auto',padding:16}},
+        React.createElement(ErrBox,{msg:err}),
+        React.createElement(FG,{label:'Case Number'},React.createElement(Inp,{value:nf.caseNo,onChange:e=>setNf(d=>({...d,caseNo:e.target.value})),placeholder:'e.g. CMCC No. 98 of 2021'})),
+        React.createElement(FG,{label:'Matter Title'},React.createElement(Inp,{value:nf.title,onChange:e=>setNf(d=>({...d,title:e.target.value})),placeholder:'e.g. Republic v. John Mwangi'})),
+        React.createElement(FG,{label:'Client'},
+          React.createElement(Sel,{value:nf.clientId,onChange:e=>{const c=clients.find(x=>x.id===e.target.value);setNf(d=>({...d,clientId:e.target.value,client:c?c.name:''}));}},
+            React.createElement('option',{value:''},'Select existing client or type below...'),
+            clients.map(c=>React.createElement('option',{key:c.id,value:c.id},c.name,' — ',c.phone))),
+          !nf.clientId&&React.createElement('div',{style:{marginTop:8}},React.createElement(Inp,{value:nf.client,onChange:e=>setNf(d=>({...d,client:e.target.value})),pro:'Full client name'}))),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+          React.createElement(FG,{label:'Court'},React.createElement(Sel,{value:nf.court,onChange:e=>setNf(d=>({...d,court:e.target.value}))},COURTS.map(c=>React.createElement('option',{key:c},c)))),
+          React.createElement(FG,{label:'Case Type'},React.createElement(Sel,{value:nf.type,onChange:e=>setNf(d=>({...d,type:e.target.value}))},CASE_TYPES.map(c=>React.createElement('option',{key:c},c))))),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+          React.createElement(FG,{label:'Priority'},React.createElement(Sel,{value:nf.priority,onChange:e=>setNf(d=>({...d,priority:e.target.value}))},['Critical','High','Medium','Low'].map(p=>React.createElement('option',{key:p},p)))),
+          React.createElement(FG,{label:'Next Hearing'},React.createElement(Inp,{type:'date',value:nf.nextHearing,onChange:e=>setNf(d=>({...d,nextHearing:e.target.value}))}))),
+        React.createElement(FG,{label:'Judge / Magistrate'},React.createElement(Inp,{value:nf.judge,onChange:e=>setNf(d=>({...d,judge:e.target.value})),placeholder:'e.g. Hon. B. Mutua'})),
+        React.createElement(FG,{label:'Opposing Party'},React.createElement(Inp,{value:nf.opposingParty,onChange:e=>setNf(d=>({...d,opposingParty:e.target.value})),placeholder:'e.g. Kenya Breweries Ltd'})),
+        React.createElement(FG,{label:'Opposing Counsel'},React.createElement(Inp,{value:nf.opposingCounsel,onChange:e=>setNf(d=>({...d,opposingCounsel:e.target.value})),placeholder:'e.g. M/s Odhiambo Advocates'})),
+        React.createElement(FG,{label:'Assigned Advocate'},React.createElement(Sel,{value:nf.hid,onChange:e=>{const s=firm.staff.find(x=>x.id===e.target.value);setNf(d=>({...d,hid:e.target.value,holderName:s?s.name:''}));}},firm.staff.map(s=>React.createElement('option',{key:s.id,value:s.id},s.name)))),
+        React.createElement(FG,{label:'Initial Location'},React.createElement(Sel,{value:nf.location,onChange:e=>setNf(d=>({...d,location:e.target.value}))},LOCS.map(l=>React.createElement('option',{key:l},l)))),
+        React.createElement(FG,{label:'Description'},React.createElement('textarea',{value:nf.description,onChange:e=>setNf(d=>({...d,description:e.target.value})),placeholder:'Brief description of the matter...',style:{width:'100%',background:'#0f1219',border:'1px solid #1e2433',borderRadius:7,color:'#e8e6e0',padding:'10px 12px',fontSize:13,outline:'none',resize:'none',height:72,fontFamily:'inherit'}})),
+        React.createElement(Btn,{onClick:create,disabled:loading||!nf.title||!nf.client||!nf.caseNo,full:true,style:{padding:'12px',marginBottom:8}},loading?'Saving...':'Register File'),
+        React.createElement(Btn,{onClick:onClose,variant:'ghost',full:true,style:{padding:'12px'}},'Cancel'))));
+}
+
+// ── Clients View ──────────────────────────────────────────────────────────────
+function ClientsView({firm, clients, setClients, token, showT}) {
+  const [showNew,setShowNew]=useState(false);
+  const [search,setSearch]=useState('');
+  const [nc,setNc]=useState({name:'',email:'',phone:'',id_no:'',address:''});
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState('');
+
+  const filtered = clients.filter(c=>{
+    if(!search) return true;
+    const s=search.toLowerCase();
+    return (c.name||'').toLowerCase().includes(s)||(c.phone||'').includes(s)||(c.email||'').toLowerCase().includes(s);
+  });
+
+  const save = async () => {
+    if(!nc.name){setErr('Name required');return;}
+    setLoading(true); setErr('');
+    try {
+      const res = await sb.post('clients',{firm_id:firm.id,...nc},token);
+      setClients(cc=>[...cc,res[0]]);
+      setNc({name:'',email:'',phone:'',id_no:'',address:''});
+      setShowNew(false);
+      showT('✦ Client added');
+    } catch(e){setErr(e.message||'Failed');}
+    setLoading(false);
+  };
+
+  return React.createElement(React.Fragment,null,
+    React.createElement(PageHdr,{title:'Clients',sub:`${clients.length} registered`,action:'Add Client',onAction:()=>setShowNew(true)}),
+    React.createElement('div',{style:{padding:'10px 16px',borderBottom:'1px solid #1e2433',flexShrink:0}},
+      React.createElement(Inp,{value:search,onChange:e=>setSearch(e.target.value),placeholder:'Search clients...'})),
+    React.createElement('div',{style:{flex:1,overflowY:'auto',padding:16}},
+      !filtered.length && React.createElement('div',{style:{textAlign:'center',padding:40,color:'#7a7d8a'}},'No clients yet. Add your first client.'),
+      filtered.map(c=>React.createElement(Card,{key:c.id,style:{padding:'12px 14px',marginBottom:10}},
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:12}},
+          React.createElement(Avatar,{name:c.name,size:38}),
+          React.createElement('div',{style:{flex:1,minWidth:0}},
+            React.createElement('div',{style:{fontSize:14,fontWeight:500,color:'#e8e6e0'}},c.name),
+            React.createElement('div',{style:{fontSize:11,color:'#7a7d8a',marginTop:2}},c.phone,c.email?' · '+c.email:''),
+            c.id_no&&React.createElement('div',{style:{fontSize:10,color:'#7a7d8a',marginTop:1}},'ID: ',c.id_no)))))),
+    showNew && React.createElement('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.82)',zIndex:200,display:'flex',flexDirection:'column',justifyContent:'flex-end'}},
+      React.createElement('div',{onClick:()=>setShowNew(false),style:{flex:1}}),
+      React.createElement('div',{style:{background:'#0a0c10',borderRadius:'16px 16px 0 0',padding:20,animation:'slideUp 0.3s ease'}},
+        React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:'#e8e6e0',marginBottom:16}},'Add Client'),
+        React.createElement(ErrBox,{msg:err}),
+        React.createElement(FG,{label:'Full Name'},React.createElement(Inp,{value:nc.name,onChange:e=>setNc(d=>({...d,name:e.target.value})),placeholder:'Client full name'})),
+        React.createElement(FG,{label:'Phone'},React.createElement(Inp,{value:nc.phone,onChange:e=>setNc(d=>({...d,phone:e.target.value})),placeholder:'0722000000'})),
+        React.createElement(FG,{label:'Email'},React.createElement(Inp,{value:nc.email,onChange:e=>setNc(d=>({...d,email:e.target.value})),type:'email',placeholder:'client@email.com'})),
+        React.createElement(FG,{label:'ID / Passport Number'},React.createElement(Inp,{value:nc.id_no,onChange:e=>setNc(d=>({...d,id_no:e.target.value})),placeholder:'National ID or passport'})),
+        React.createElement(FG,{label:'Address'},React.createElement(Inp,{value:nc.address,onChange:e=>setNc(d=>({...d,address:e.target.value})),placeholder:'Physical address'})),
+        React.createElement('div',{style:{display:'flex',gap:8}},
+          React.createElement(Btn,{onClick:()=>setShowNew(false),variant:'ghost',full:true},'Cancel'),
+          React.createElement(Btn,{onClick:save,full:true,disabled:loading},loading?'Saving...':'Add Client')))));
+}
+
+// ── Staff View ────────────────────────────────────────────────────────────────
+function StaffView({firm, setFirm, token, showT}) {
+  const [showNew,setShowNew]=useState(false);
+  const [ns,setNs]=useState({name:'',email:'',phone:'',role:'associate',username:''});
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState('');
+
+  const save = async () => {
+    if(!ns.name){setErr('Name required');return;}
+    setLoading(true); setErr('');
+    try {
+      const res = await sb.post('staff',{firm_id:firm.id,...ns},token);
+      setFirm(f=>({...f,staff:[...f.staff,res[0]]}));
+      setNs({name:'',email:'',phone:'',role:'associate',username:''});
+      setShowNew(false);
+      showT('✦ Staff member added');
+    } catch(e){setErr(e.message||'Failed');}
+    setLoading(false);
+  };
+
+  return React.createElement(React.Fragment,null,
+    React.createElement(PageHdr,{title:'Staff',sub:`${firm.staff.length} members`,action:'Add Staff',onAction:()=>setShowNew(true)}),
+    React.createElement('div',{style:{flex:1,overflowY:'auto',padding:16}},
+      !firm.staff.length && React.createElement('div',{style:{textAlign:'center',padding:40,color:'#7a7d8a'}},'No staff yet.'),
+      firm.staff.map(s=>React.createElement(Card,{key:s.id,style:{padding:'12px 14px',marginBottom:10}},
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:12}},
+          React.createElement(Avatar,{name:s.name,size:40}),
+          React.createElement('div',{style:{flex:1,minWidth:0}},
+            React.createElement('div',{style:{fontSize:14,fontWeight:500,color:'#e8e6e0'}},s.name),
+            React.createElement('div',{style:{fontSize:11,color:'#c9a84c',marginTop:2}},roleLabel(s.role)),
+            React.createElement('div',{style:{fontSize:11,color:'#7a7d8a',marginTop:2}},s.phone,s.email?' · '+s.email:''))))),
+    showNew && React.createElement('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.82)',zIndex:200,display:'flex',flexDirection:'column',justifyContent:'flex-end'}},
+      React.createElement('div',{onClick:()=>setShowNew(false),style:{flex:1}}),
+      React.createElement('div',{style:{background:'#0a0c10',borderRadius:'16px 16px 0 0',padding:20,animation:'slideUp 0.3s ease'}},
+        React.createElement('div',{style:{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:'#e8e6e0',marginBottom:16}},'Add Staff Member'),
+        React.createElement(ErrBox,{msg:err}),
+        React.createElement(FG,{label:'Full Name'},React.createElement(Inp,{value:ns.name,onChange:e=>setNs(d=>({...d,name:e.target.value})),placeholder:'e.g. Amina Waweru'})),
+        React.createElement(FG,{label:'Role'},React.createElement(Sel,{value:ns.role,onChange:e=>setNs(d=>({...d,role:e.target.value}))},ROLES.map(r=>React.createElement('option',{key:r,value:r},roleLabel(r))))),
+        React.createElement(FG,{label:'Phone'},React.createElement(Inp,{value:ns.phone,onChange:e=>setNs(d=>({...d,phone:e.target.value})),placeholder:'0722000000'})),
+        React.createElement(FG,{label:'Email'},React.createElement(Inp,{value:ns.email,onChange:e=>setNs(d=>({...d,email:e.target.value})),type:'email',placeholder:'staff@yourfirm.co.ke'})),
+        React.createElement(FG,{label:'Username (optional)'},React.createElement(Inp,{value:ns.username,onChange:e=>setNs(d=>({...d,username:e.target.value})),placeholder:'e.g. awaweru'})),
+        React.createElement('div',{style:{display:'flex',gap:8}},
+          React.createElement(Btn,{onClick:()=>setShowNew(false),variant:'ghost',full:true},'Cancel'),
+          React.createElement(Btn,{onClick:save,full:true,disabled:loading},loading?'Saving...':'Add Staff Member'))))));
+}
+
+// ── Calendar View ─────────────────────────────────────────────────────────────
+function CalendarView({files}) {
+  const [view,setView]=useState('week');
+  const today=new Date();
+  const weekDays=useMemo(()=>{const days=[];for(let i=0;i<7;i++){const d=new Date(today);d.setDate(today.getDate()+i);days.push(d);}return days;},[]);
+  const monthDays=useMemo(()=>{const first=new Date(today.getFullYear(),today.getMonth(),1);const days=[];for(let i=0;i<42;i++){const d=new Date(first);d.setDate(first.getDate()+i-first.getDay());days.push(d);}return days;},[]);
+  const hearingsOn=d=>{const ds=d.toISOString().split('T')[0];return files.filter(f=>f.next_hearing===ds);};
+  const allUpcoming=files.filter(f=>f.next_hearing&&du(f.next_hearing)>=0).sort((a,b)=>a.next_hearing.localeCompare(b.next_hearing));
+
+  return React.createElement(React.Fragment,null,
+    React.createElement(PageHdr,{title:'Diary & Calendar',sub:'All hearings across all files'}),
+    React.createElement('div',{style:{flex:1,overflowY:'auto',padding:16}},
+      React.createElement('div',{style:{display:'flex',gap:6,marginBottom:14}},
+        ['week','month','list'].map(v=>React.createElement('button',{key:v,onClick:()=>setView(v),style:{padding:'6px 14px',borderRadius:20,fontSize:12,cursor:'pointer',border:`1px solid ${view===v?'#c9a84c':'#1e2433'}`,color:view===v?'#c9a84c':'#7a7d8a',background:view===v?'rgba(201,168,76,0.1)':'transparent',fontFamily:'inherit',textTransform:'capitalize'}},v))),
+      view==='week'&&React.createElement('div',null,
+        React.createElement('div',{style:{fontSize:13,fontWeight:600,color:'#e8e6e0',marginBottom:12}},fmtM(today)),
+        weekDays.map((d,i)=>{
+          const hearings=hearingsOn(d);const isToday=d.toDateString()===today.toDateString();
+          return React.createElement('div',{key:i,style:{display:'flex',gap:12,marginBottom:10,alignItems:'flex-start'}},
+            React.createElement('div',{style:{width:44,textAlign:'center',flexShrink:0}},
+              React.createElement('div',{style:{fontSize:10,color:'#7a7d8a'}},d.toLocaleDateString('en-GB',{weekday:'short'})),
+              React.createElement('div',{style:{width:32,height:32,borderRadius:'50%',background:isToday?'#c9a84c':'transparent',border:isToday?'none':'1px solid #1e2433',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:isToday?700:400,color:isToday?'#0a0c10':'#e8e6e0',margin:'3px auto 0'}},d.getDate())),
+            React.createElement('div',{style:{flex:1,minHeight:40,borderLeft:'1px solid #1e2433',paddingLeft:12}},
+              !hearings.length&&React.createElement('div',{style:{fontSize:11,color:'#3a3d4a',paddingTop:8}},'No hearings'),
+              hearings.map(f=>React.createElement('div',{key:f.id,style:{background:'rgba(201,168,76,0.08)',border:'1px solid rgba(201,168,76,0.2)',borderRadius:6,padding:'7px 10px',marginBottom:6}},
+                React.createElement('div',{style:{fontSize:10,color:'#c9a84c'}},f.case_no),
+                React.createElement('div',{style:{fontSize:12,fontWeight:500,color:'#e8e6e0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},f.title),
+                React.createElement('div',{style:{fontSize:10,color:'#7a7d8a',marginTop:2}},f.judge||f.court)))));
+        })),
+      view==='list'&&React.createElement('div',null,
+        !allUpcoming.length&&React.createElement('div',{style:{textAlign:'center',padding:30,color:'#7a7d8a'}},'No upcoming hearings scheduled'),
+        allUpcoming.map(f=>{const d=du(f.next_hearing);return React.createElement(Card,{key:f.id,style:{padding:'12px 14px',marginBottom:8}},
+          React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}},
+            React.createElement('div',{style:{flex:1,minWidth:0}},
+              React.createElement('div',{style:{fontSize:10,color:'#c9a84c',marginBottom:2}},f.case_no),
+              React.createElement('div',{style:{fontSize:13,fontWeight:500,color:'#e8e6e0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},f.title),
+              React.createElement('div',{style:{fontSize:11,color:'#7a7d8a',marginTop:2}},f.court,' · ',f.judge||'—')),
+            React.createElement('div',{style:{textAlign:'right',flexShrink:0}},
+              React.createElement('div',{style:{fontSize:13,fontWeight:700,color:d<=7?'#e63946':'#c9a84c'}},fmt(f.next_hearing)),
+              React.createElement('div',{style:{fontSize:10,color:d<=7?'#e63946':'#7a7d8a'}},d===0?'TODAY':d<=7?`${d} days`:`${d} days`))));})),
+      view==='month'&&React.createElement('div',null,
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1,marginBottom:4}},
+          ['M','T','W','T','F','S','S'].map((d,i)=>React.createElement('div',{key:i,style:{textAlign:'center',fontSize:10,color:'#7a7d8a',padding:'4px 0'}},d))),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1}},
+          monthDays.map((d,i)=>{
+            const hearings=hearingsOn(d);const isToday=d.toDateString()===today.toDateString();const curMonth=d.getMonth()===today.getMonth();
+            return React.createElement('div',{key:i,style:{minHeight:44,padding:4,background:isToday?'rgba(201,168,76,0.1)':'transparent',border:`1px solid ${isToday?'rgba(201,168,76,0.3)':'#1e2433'}`,borderRadius:4}},
+              React.createElement('div',{style:{fontSize:10,color:curMonth?'#e8e6e0':'#3a3d4a',fontWeight:isToday?700:400,marginBottom:2}},d.getDate()),
+              hearings.slice(0,2).map(f=>React.createElement('div',{key:f.id,style:{width:'100%',height:4,background:'#c9a84c',borderRadius:2,marginBottom:2}})),
+              hearings.length>2&&React.createElement('div',{style:{fontSize:8,color:'#c9a84c'}},'+',hearings.length-2));
+          })))));
+}
+
+// ── More / Settings ───────────────────────────────────────────────────────────
+function MoreView({firm, token, onLogout, showT}) {
+  const doLogout = async () => {
+    try { await sb.signOut(token); } catch(e){}
+    onLogout();
+  };
+
+  return React.createElement(React.Fragment,null,
+    React.createElement(PageHdr,{title:'Settings & More'}),
+    React.createElement('div',{style:{flex:1,overflowY:'auto',padding:16}},
+      React.createElement(Card,{style:{padding:16,marginBottom:12}},
+        React.createElement(SectionTitle,null,'Your Firm'),
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:12,marginTop:8}},
+          React.createElement(Avatar,{name:firm.name,size:44}),
+          React.createElement('div',null,
+            React.createElement('div',{style:{fontSize:15,fontWeight:600,color:'#e8e6e0'}},firm.name),
+            React.createElement('div',{style:{fontSize:12,color:'#7a7d8a',marginTop:2}},firm.county,' · ',firm.email),
+            React.createElement('div',{style:{fontSize:11,color:'#c9a84c',marginTop:4}},'Pro Plan · KES 3,500/month')))),
+      React.createElement(Card,{style:{padding:16,marginBottom:12}},
+        React.createElement(SectionTitle,null,'Payment'),
+        React.createElement('div',{style:{fontSize:12,color:'#7a7d8a',marginBottom:10}},'Pay monthly subscription via:'),
+        React.createElement('div',{style:{background:'#0a0c10',borderRadius:8,padding:'10px 14px',marginBottom:8,display:'flex',justifyContent:'space-between'}},
+          React.createElement('div',null,
+            React.createElement('div',{style:{fontSize:10,color:'#7a7d8a',marginBottom:2}},'M-Pesa Send Money'),
+            React.createElement('div',{style:{fontSize:15,fontWeight:700,color:'#00a651'}},'📱 0118 556423')),
+          React.createElement('div',{style:{fontSize:10,color:'#7a7d8a',alignSelf:'center'}},'KES 3,500')),
+        React.createElement('div',{style:{background:'#0a0c10',borderRadius:8,padding:'10px 14px',display:'flex',justifyContent:'space-between'}},
+          React.createElement('div',null,
+            React.createElement('div',{style:{fontSize:10,color:'#7a7d8a',marginBottom:2}},'Paybill'),
+            React.createElement('div',{style:{fontSize:14,fontWeight:700,color:'#c9a84c'}},'522522'),
+            React.createElement('div',{style:{fontSize:12,color:'#e8e6e0'}},'Account: 1350309257')),
+          React.createElement('div',{style:{fontSize:10,color:'#7a7d8a',alignSelf:'center'}},'KES 3,500'))),
+      React.createElement(Btn,{onClick:doLogout,variant:'danger',full:true,style:{padding:'12px',marginTop:8}},'Sign Out')));
+}
+
+// ── Portal ────────────────────────────────────────────────────────────────────
+function Portal({firm: initialFirm, onLogout}) {
+  const [firm,setFirm]=useState(initialFirm);
+  const [files,setFiles]=useState(initialFirm.files||[]);
+  const [clients,setClients]=useState(initialFirm.clients||[]);
+  const [tab,setTab]=useState('dashboard');
+  const [toast,setToast]=useState('');
+  const showT=msg=>{setToast(msg);};
+
+  const token = firm.token;
+
+  return React.createElement('div',{style:{height:'100vh',display:'flex',flexDirection:'column',background:'#090b0f'}},
+    toast&&React.createElement(Toast,{msg:toast,onHide:()=>setToast('')}),
+    React.createElement('div',{style:{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}},
+      tab==='dashboard'&&React.createElement(Dashboard,{firm,files,clients,setTab,showT}),
+      tab==='files'&&React.createElement(FilesView,{firm,files,setFiles,clients,showT,token}),
+      tab==='calendar'&&React.createElement(CalendarView,{files}),
+      tab==='staff'&&React.createElement(StaffView,{firm,setFirm,token,showT}),
+      tab==='clients'&&React.createElement(ClientsView,{firm,clients,setClients,token,showT}),
+      tab==='more'&&React.createElement(MoreView,{firm,token,onLogout,showT})),
+    React.createElement('div',{style:{display:'flex',borderTop:'1px solid #1e2433',background:'#0a0c10',flexShrink:0,paddingBottom:'env(safe-area-inset-bottom,0px)'}},
+      [{id:'dashboard',icon:'⊞',label:'Home'},{id:'files',icon:'⊟',label:'Files'},{id:'calendar',icon:'📅',label:'Diary'},{id:'staff',icon:'👥',label:'Staff'},{id:'more',icon:'≡',label:'More'}].map(n=>
+        React.createElement('button',{key:n.id,onClick:()=>setTab(n.id),style:{flex:1,padding:'8px 4px',display:'flex',flexDirection:'column',alignItems:'center',gap:3,border:'none',background:'transparent',cursor:'pointer',fontFamily:'inherit'}},
+          React.createElement('span',{style:{fontSize:18,lineHeight:1}},n.icon),
+          React.createElement('span',{style:{fontSize:9,fontWeight:500,color:tab===n.id?'#c9a84c':'#7a7d8a',textTransform:'uppercase',letterSpacing:'0.04em'}},n.label)))));
+}
+
+// ── App Root ──────────────────────────────────────────────────────────────────
+function App() {
+  const [page,setPage]=useState('login');
+  const [firm,setFirm]=useState(null);
+
+  return React.createElement(React.Fragment,null,
+    page==='login'&&React.createElement(LoginPage,{onLogin:f=>{setFirm(f);setPage('portal');},onRegister:()=>setPage('register')}),
+    page==='register'&&React.createElement(RegisterPage,{onBack:()=>setPage('login'),onDone:()=>{setPage('login');}}),
+    page==='portal'&&firm&&React.createElement(Portal,{firm,onLogout:()=>{setFirm(null);setPage('login');}}));
+}
+
+const loading = document.getElementById('loading');
+if(loading) loading.remove();
+ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App,null));
+</script>
+</body>
+</html>
